@@ -130,6 +130,48 @@ class DocumentTest < Test::Unit::TestCase
         doc.foo['baz'].should == 'bar'
       end
     end
+
+    context "Specifying default sort order" do 
+      setup do 
+        @document.order "age asc"
+      end
+
+      should "store the default order specified" do 
+        @document.default_order.should == "age asc"
+      end
+
+      should "support descending order" do 
+        @document.order "age desc"
+        @document.default_order.should == "age desc"
+      end
+
+      should "support multiple order expressions" do 
+        @document.order "last_name asc, age asc"
+        @document.default_order.should == "last_name asc, age asc"
+      end
+
+      should "raise exception if string not given" do 
+        assert_raise ArgumentError do 
+          @document.order :age => :asc
+        end
+      end
+
+      should "raise an exception if order direction not specified" do
+        assert_raise ArgumentError do 
+          @document.order "age"
+        end
+      end
+
+      should "require a string of the format 'key direction'" do 
+        assert_raise ArgumentError do 
+          @document.order "age first_name last_name"
+        end
+
+        assert_raise ArgumentError do 
+          @document.order "age oops"
+        end
+      end
+    end
     
     context "Creating a single document" do
       setup do
@@ -284,6 +326,11 @@ class DocumentTest < Test::Unit::TestCase
           @document.find(:all, :order => 'first_name').should == [@doc1, @doc3, @doc2]
         end
 
+        should "use default order if given" do 
+          @document.order "first_name desc"
+          @document.find(:all).should == [@doc2, @doc3, @doc1]
+        end
+
         should "be able to add conditions" do
           @document.find(:all, :conditions => {:first_name => 'John'}).should == [@doc1]
         end
@@ -302,10 +349,22 @@ class DocumentTest < Test::Unit::TestCase
         end
       end
 
+      context "with :first" do 
+        should "use default order if specified" do 
+          @document.order "first_name desc"
+          @document.find(:first).should == @doc2
+        end
+      end
+
       context "with #first" do
         should "find first document based on criteria" do
           @document.first(:order => 'first_name').should == @doc1
           @document.first(:conditions => {:age => 28}).should == @doc2
+        end
+
+        should "ignore default order if order options provided" do
+          @document.order "first_name desc"
+          @document.first(:order => 'first_name').should == @doc1
         end
       end
 
@@ -315,10 +374,38 @@ class DocumentTest < Test::Unit::TestCase
         end
       end
 
+      context "with :last" do 
+        should "use default order if specified" do 
+          @document.order "first_name desc"
+          @document.find(:last).should == @doc1
+        end
+      end
+
       context "with #last" do
         should "find last document based on criteria" do
           @document.last(:order => 'age').should == @doc2
           @document.last(:conditions => {:age => 28}).should == @doc2
+        end
+
+        should "ignore default order if given order criteria" do
+          @document.order "first_name desc"
+          @document.first(:order => 'first_name asc').should == @doc1
+        end
+      end
+
+      context "order clause inverter for #last" do 
+        should "use the natural order if no order is specified" do
+          @document.send(:invert_order_clause, {}).should == "$natural desc"
+        end
+
+        should "invert the default order if set" do 
+          @document.order "age asc"
+          @document.send(:invert_order_clause, {}).should == "age desc"
+        end
+
+        should "invert a provided order option, even if a default is set" do 
+          @document.order "age asc"
+          @document.send(:invert_order_clause, {:order => "first_name asc"}).should == "first_name desc"
         end
       end
 

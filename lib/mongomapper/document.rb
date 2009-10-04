@@ -25,7 +25,7 @@ module MongoMapper
       @descendants ||= Set.new
     end
 
-    module ClassMethods
+   module ClassMethods
       def find(*args)
         options = args.extract_options!
 
@@ -156,7 +156,27 @@ module MongoMapper
         
         class_eval { before_save :update_timestamps }
       end
-      
+
+      # Sets a default sort order for #find methods.
+      # Uses a standard order string of format +field+ +directon+, where
+      # direction is +asc+ or +desc+: 
+      #   order 'age asc'
+      #   order 'last_name asc, age asc'
+      #   order '$natural desc'
+      #
+      # It is important to specify a default sort order. If an order isn't specified, 
+      # #find(:last) will use a default sort order of '$natural asc,' which may
+      # not be performant if any indexes have been created on the collection.
+      def order(order_string)
+        check_order_string(order_string)
+        @default_order = order_string
+      end
+
+      # Returns the default sort order or nil.
+      def default_order
+        @default_order
+      end
+
       protected
         def method_missing(method, *args)
           finder = DynamicFinder.new(self, method)
@@ -172,27 +192,38 @@ module MongoMapper
           end
         end
 
+        def check_order_string(order_string)
+          order_expressions = order_string.to_s.strip.split(",")
+          order_expressions.each do |expression|
+            values = expression.strip.split(" ")
+            if(values.length != 2 || !['asc', 'desc'].include?(values.last))
+              raise ArgumentError, "Malformed order expression: expected field name followed by direction ('asc' or 'desc') with each term comma-separated."
+            end
+          end
+        end
+
       private
         def find_every(options)
+          options = {:order => default_order}.merge(options) if default_order
           criteria, options = FinderOptions.new(options).to_a
           collection.find(criteria, options).to_a.map { |doc| new(doc) }
         end
 
         def find_first(options)
           options.merge!(:limit => 1)
-          find_every({:order => '$natural asc'}.merge(options))[0]
+          find_every(options)[0]
         end
 
         def find_last(options)
           options.merge!(:limit => 1)
           options[:order] = invert_order_clause(options)
           find_every(options)[0]
-          #find_every({:order => '$natural desc'}.merge(invert_order_clause(options)))[0]
         end
 
         def invert_order_clause(options)
-          return '$natural desc' unless options[:order]
-          options[:order].split(',').map do |order_segment| 
+          return '$natural desc' unless options[:order] || default_order
+          order_clause = options[:order] || default_order
+          order_clause.split(',').map do |order_segment| 
             if order_segment =~ /\sasc/i
               order_segment.sub /\sasc/i, ' desc'
             elsif order_segment =~ /\sdesc/i
